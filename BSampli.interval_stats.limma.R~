@@ -97,55 +97,78 @@ ggsave(paste0(bedshort,".Beta.MeanXgroup.all.violin.png"))
 
 save(bedtab,limdat.LG.inCGI,CGI.limdat.CC,CGI.limdat.CC.Means,file=paste0(bedshort,".aggCpG.RData"))
 
+#############################################
+
+if(!is.null(sampleInfo$Timepoint)){
+    tu<-unique(sampleInfo$Timepoint)
+    CGI.limdat.CC.Means$Timepoint<-sampleInfo$Timepoint[match(CGI.limdat.CC.Means$SampleID,sampleInfo$SampleID)]}else{
+    sampleInfo$Timepoint<-""
+    CGI.limdat.CC.Means$Timepoint<-sampleInfo$Timepoint[match(CGI.limdat.CC.Means$SampleID,sampleInfo$SampleID)]}
+
+for(i in seq_along(tu)){
+    sampleInfo.tu<-sampleInfo[sampleInfo$Timepoint %in% tu[i],]
+    CGI.limdat.CC.tu<-CGI.limdat.CC[,colnames(CGI.limdat.CC) %in% sampleInfo.tu$SampleID]
+    x1<-PCA(CGI.limdat.CC.tu,graph=FALSE)
+
+    pdf(paste0(tu[i],".CGI.limdat.CC.PCA.pdf"),paper="a4",bg="white") 
+    plot.PCA(x1,choix="var")
+    dev.off()
+
+  
+    CGI.limdat.CC.Means.tu<-CGI.limdat.CC.Means[CGI.limdat.CC.Means$Timepoint %in% tu[i],]
+    CGI.limdat.CC.tu$IntID<-rownames(CGI.limdat.CC.tu)
+    CGI.limdat.CC.tu.L<-melt(CGI.limdat.CC.tu,id.vars="IntID",value.name="Beta.Mean",variable.name="SampleID")
+    CGI.limdat.CC.tu.L$Group<-sampleInfo.tu$Group[match(CGI.limdat.CC.tu.L$SampleID,sampleInfo.tu$SampleID)]
+    CGI.limdat.CC.tu.L$Group<-factor(CGI.limdat.CC.tu.L$Group,levels=c("WT","MUT"))
+    CGI.limdat.CC.tu.L$IntID<-factor(CGI.limdat.CC.tu.L$IntID,levels=c("krt8","rarga","Vasa","Ntla"))
+
 ###dot per interval per sample
-ggplot(data=CGI.limdat.CC.Means,aes(x=Group,y=Beta.Mean))+geom_jitter(size=4,width=0.1,height=0.00005,alpha=0.6,aes(colour=Group))+facet_grid(IntID~.)+ggtitle("Mean methylation rate per region")+
-   theme(text = element_text(size=16),axis.text.y = element_text(size=12),axis.title = element_text(size=14),axis.text.x=element_text(size=12,angle=90))+xlab("")+ylab("Mean methylation rate")+ylim(0,1)+scale_colour_manual(values=c("blue","darkgreen","grey28","red","turquoise4","orange4"))
-ggsave(paste0(bedshort,".BetaMeanXInt.perGroup.dotplot.png"),height=10,width=16)
+    ggplot(data=CGI.limdat.CC.tu.L,aes(x=Group,y=Beta.Mean))+geom_jitter(size=4,width=0.1,height=0.00005,alpha=0.6,aes(colour=Group))+facet_grid(.~IntID)+ggtitle(paste0("Mean methylation rate per region in ",tu[i]))+theme(text = element_text(size=16),axis.text.y = element_text(size=12),axis.title = element_text(size=14),axis.text.x=element_text(size=12,angle=90))+xlab("")+ylab("Mean methylation rate")+ylim(0,1)+scale_colour_manual(values=c("grey28","red"))
+    ggsave(paste0(tu[i],".BetaMeanXInt.perGroup.dotplot.png"),height=10,width=16)
 
-##barplots mean +/- stdev
-summarySE <- function(data=NULL, measurevar, groupvars=NULL, na.rm=FALSE,
-                      conf.interval=.95, .drop=TRUE) {
-    require(plyr)
+    write.table(CGI.limdat.CC.tu.L,file=paste0("CGI.limdat.CC.",tu[i],".L.xls"),sep="\t",quote=FALSE,row.names=FALSE)
 
-    # New version of length which can handle NA's: if na.rm==T, don't count them
-    length2 <- function (x, na.rm=FALSE) {
-        if (na.rm) sum(!is.na(x))
-        else       length(x)
+
+####barplot per interval per group
+    plotdat2<-summarySE(CGI.limdat.CC.tu.L, measurevar="Beta.Mean", groupvars=c("Group","IntID"))
+    ggplot(plotdat2, aes(x=Group, y=Beta.Mean)) + 
+    geom_bar(stat="identity",position="identity",aes(fill=Group))+
+    geom_errorbar(aes(ymin=Beta.Mean-sd, ymax=Beta.Mean+sd),width=.2)+facet_grid(.~IntID)+
+   theme(text = element_text(size=16),axis.text.y = element_text(size=12),axis.title = element_text(size=14),axis.text.x=element_text(size=12,angle=90))+xlab("")+ylab("Mean methylation rate")+ylim(0,1)+scale_fill_manual(values=c("grey28","red"))+ggtitle(paste0("Mean methylation rate per region in ",tu[i]))
+    ggsave(paste0("287",tu[i],".BetaMeanXInt.perGroup.barplot.png"),height=8,width=12)
+
+    write.table(plotdat2,file=paste0("plotdat2.",tu[i],".L.xls"),sep="\t",quote=FALSE,row.names=FALSE)
+
+    print(paste0(i,"_processed"))
+
+###stats WT vs MUT
+    plotdat<-CGI.limdat.CC.tu.L
+    plotdat$logit25<-logit(p=plotdat$Beta.Mean,percents=FALSE,adjust=0.025)
+    GSv<-unique(as.character(plotdat$IntID))
+    res<-data.frame(GSv,stringsAsFactors=FALSE)
+    res$MUT<-NA
+    res$WT<-NA
+    res$logit.MUT<-NA
+    res$logit.WT<-NA
+    res$pval<-NA
+    plotdat<-plotdat
+    for(k in seq_along(GSv)){
+        td<-plotdat[plotdat$IntID %in% GSv[k],]
+
+        res$MUT[k]<-mean(td$Beta.Mean[td$Group %in% "MUT"])
+        res$WT[k]<-mean(td$Beta.Mean[td$Group %in% "WT"])
+        res$logit.MUT[k]<-mean(td$logit25[td$Group %in% "MUT"])
+        res$logit.WT[k]<-mean(td$logit25[td$Group %in% "WT"])
+
+        z<-t.test(x=td$logit25[td$Group %in% "MUT"],y=td$logit25[td$Group %in% "WT"],var.equal=TRUE)
+        res$pval[k]<-z$p.value
+
     }
 
-    # This does the summary. For each group's data frame, return a vector with
-    # N, mean, and sd
-    datac <- ddply(data, groupvars, .drop=.drop,
-      .fun = function(xx, col) {
-        c(N    = length2(xx[[col]], na.rm=na.rm),
-          mean = mean   (xx[[col]], na.rm=na.rm),
-          sd   = sd     (xx[[col]], na.rm=na.rm)
-        )
-      },
-      measurevar
-    )
+    res<-res[order(res$pval),]
 
-    # Rename the "mean" column    
-    datac <- rename(datac, c("mean" = measurevar))
+    write.table(res,file=paste0("interval.mean.",tu[i],".ttest.xls"),row.names=FALSE,quote=FALSE,sep="\t")
 
-    datac$se <- datac$sd / sqrt(datac$N)  # Calculate standard error of the mean
 
-    # Confidence interval multiplier for standard error
-    # Calculate t-statistic for confidence interval: 
-    # e.g., if conf.interval is .95, use .975 (above/below), and use df=N-1
-    ciMult <- qt(conf.interval/2 + .5, datac$N-1)
-    datac$ci <- datac$se * ciMult
-    datac$ci.sd <- datac$sd * ciMult
-
-    return(datac)
 }
-
-
-plotdat2<-summarySE(CGI.limdat.CC.Means, measurevar="Beta.Mean", groupvars=c("Group","IntID"))
-
-ggplot(plotdat2, aes(x=Group, y=Beta.Mean)) + 
-    geom_errorbar(aes(ymin=Beta.Mean-sd, ymax=Beta.Mean+sd),width=.2) +
-    geom_bar(stat="identity",position="identity",aes(fill=Group))+facet_grid(.~IntID)+
-   theme(text = element_text(size=16),axis.text.y = element_text(size=12),axis.title = element_text(size=14),axis.text.x=element_text(size=12,angle=90))+xlab("")+ylab("Mean methylation rate")+ylim(0,1)+scale_fill_manual(values=c("blue","darkgreen","grey28","red"))
-ggsave(paste0(bedshort,".BetaMeanXInt.perGroup.barplot.png"),height=8,width=12)
 
